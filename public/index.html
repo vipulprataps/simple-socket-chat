@@ -3,242 +3,140 @@
 <head>
   <meta charset="utf-8" />
   <title>Simple 1-to-1 Chat</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; }
-    #app { max-width: 720px; margin: 0 auto; }
-    .hidden { display: none; }
-    .messages { border: 1px solid #ddd; height: 50vh; overflow-y: auto; padding: 0.5rem; margin-bottom: 0.5rem; }
-    .msg { margin: 0.3rem 0; padding: 0.4rem; border-radius: 6px; }
-    .me { background: #e6f7ff; align-self: flex-end; }
-    .other { background: #f3f3f3; }
-    .meta { font-size: 0.8rem; color: #666; }
-    .controls { display: flex; gap: .5rem; }
-    .controls input[type="text"] { flex: 1; padding: .5rem; }
-    .delete-btn { background: none; border: none; color: #f00; cursor: pointer; font-size: 0.8rem; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#075E54" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
-    <h2>1-to-1 Chat</h2>
+    <!-- Join Area -->
+    <div id="join-area" class="join-container">
+      <div class="join-header">
+        <h1>💬 Chat</h1>
+        <p>Connect with your peers instantly</p>
+      </div>
+      
+      <div class="join-form">
+        <!-- Create Room Tab -->
+        <div id="createRoomSection">
+          <h3 style="margin-bottom: 1rem; color: var(--primary-color);">Create New Room</h3>
+          
+          <div class="form-group">
+            <label for="user1Name">Person 1 Name</label>
+            <input id="user1Name" type="text" placeholder="Enter first person's name" />
+          </div>
+          
+          <div class="form-group">
+            <label for="user2Name">Person 2 Name</label>
+            <input id="user2Name" type="text" placeholder="Enter second person's name" />
+          </div>
+          
+          <button id="createRoomBtn" class="btn-primary">Create Room & Get Link</button>
+          
+          <div class="divider">
+            <span>OR</span>
+          </div>
+          
+          <button id="switchToJoinBtn" class="btn-secondary">Join Existing Room</button>
+        </div>
 
-    <div id="join-area">
-      <label>
-        Your name: <input id="username" type="text" placeholder="Alice" />
-      </label>
-      <label style="margin-left:1rem">
-        Room id: <input id="roomId" type="text" placeholder="room123" />
-      </label>
-      <button id="joinBtn">Join Room</button>
-      <p style="font-size:.9rem;color:#555">Open the same URL in another tab/window and join the same room id.</p>
+        <!-- Join Room Tab -->
+        <div id="joinRoomSection" class="hidden">
+          <h3 style="margin-bottom: 1rem; color: var(--primary-color);">Join Room</h3>
+          
+          <div class="form-group">
+            <label for="roomIdInput">Room ID</label>
+            <input id="roomIdInput" type="text" placeholder="Enter room ID from URL" />
+          </div>
+          
+          <button id="checkRoomBtn" class="btn-primary">Check Room</button>
+          
+          <div class="divider">
+            <span>OR</span>
+          </div>
+          
+          <button id="switchToCreateBtn" class="btn-secondary">Create New Room</button>
+        </div>
+
+        <!-- Room Info & Join Confirmation -->
+        <div id="roomInfoSection" class="hidden">
+          <h3 style="margin-bottom: 1rem; color: var(--primary-color);">Join as</h3>
+          
+          <div id="slotSelection" class="slot-selection">
+            <button id="joinAsUser1" class="slot-btn" data-slot="user1">
+              <div class="slot-name"></div>
+              <div class="slot-status"></div>
+            </button>
+            <button id="joinAsUser2" class="slot-btn" data-slot="user2">
+              <div class="slot-name"></div>
+              <div class="slot-status"></div>
+            </button>
+          </div>
+          
+          <button id="backToJoinBtn" class="btn-secondary" style="margin-top: 1rem;">Back</button>
+        </div>
+
+        <!-- Room Link Display -->
+        <div id="roomLinkSection" class="hidden">
+          <h3 style="margin-bottom: 1rem; color: var(--primary-color);">Room Created!</h3>
+          
+          <div class="room-link-container">
+            <input id="roomLinkInput" type="text" readonly class="room-link-input" />
+            <button id="copyLinkBtn" class="btn-icon">📋</button>
+          </div>
+          
+          <p class="help-text">Share this link with the other person to start chatting</p>
+          
+          <button id="joinCreatedRoomBtn" class="btn-primary">Join Room</button>
+        </div>
+      </div>
     </div>
 
+    <!-- Chat Area -->
     <div id="chat-area" class="hidden">
-      <div class="meta">Room: <span id="roomLabel"></span> — Participants: <span id="participantsCount">0</span></div>
-      <div id="typing" class="typing hidden"></div>
-      <div id="messages" class="messages"></div>
+      <!-- Chat Header -->
+      <div class="chat-header">
+        <button id="backBtn" class="back-btn">←</button>
+        <div class="chat-header-info">
+          <div class="room-name" id="roomLabel"></div>
+          <div class="room-status">
+            <span id="participantsCount">0</span> participants · 
+            <span id="status" class="status-indicator">Connected</span>
+          </div>
+        </div>
+        <button id="editUsernameBtn" class="icon-btn" title="Edit Username">✏️</button>
+        <button id="menuBtn" class="menu-btn">⋮</button>
+      </div>
 
-      <form id="sendForm" class="controls" autocomplete="off">
-        <input id="messageInput" type="text" placeholder="Type a message..." />
-        <button type="submit">Send</button>
-      </form>
-      <div class="controls" style="margin-top:.5rem">
-        <button id="clearBtn">Clear Chat</button>
-        <button id="exportBtn">Export Chat</button>
-        <button id="leaveBtn">Leave Room</button>
+      <!-- Typing Indicator -->
+      <div id="typing" class="typing-indicator hidden"></div>
+
+      <!-- Messages Container -->
+      <div id="messages" class="messages-container"></div>
+
+      <!-- Chat Input -->
+      <div class="chat-input-container">
+        <form id="sendForm" class="chat-input-form">
+          <button type="button" id="attachBtn" class="icon-btn">📎</button>
+          <input id="messageInput" type="text" placeholder="Type a message..." class="message-input" />
+          <button type="submit" class="send-btn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
+            </svg>
+          </button>
+        </form>
+      </div>
+
+      <!-- Action Menu (hidden by default) -->
+      <div id="actionMenu" class="action-menu hidden">
+        <button id="clearBtn" class="menu-item">🗑️ Clear Chat</button>
+        <button id="exportBtn" class="menu-item">📥 Export Chat</button>
+        <button id="leaveBtn" class="menu-item danger">🚪 Leave Room</button>
       </div>
     </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script>
-    // client-side script
-    const socket = io();
-
-    // UI refs
-    const joinArea = document.getElementById('join-area');
-    const chatArea = document.getElementById('chat-area');
-    const usernameInput = document.getElementById('username');
-    const roomInput = document.getElementById('roomId');
-    const joinBtn = document.getElementById('joinBtn');
-    const messagesEl = document.getElementById('messages');
-    const sendForm = document.getElementById('sendForm');
-    const messageInput = document.getElementById('messageInput');
-    const roomLabel = document.getElementById('roomLabel');
-    const participantsCountEl = document.getElementById('participantsCount');
-    const typingEl = document.getElementById('typing');
-    const leaveBtn = document.getElementById('leaveBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const exportBtn = document.getElementById('exportBtn');
-
-    let localUsername = '';
-    let localRoom = '';
-    let typingTimer = null;
-    let isTyping = false;
-    let messages = [];
-
-    function appendMessage({ text, from, id, senderId, ts }) {
-      const me = senderId === socket.id;
-      const div = document.createElement('div');
-      div.className = 'msg ' + (me ? 'me' : 'other');
-      div.setAttribute('data-message-id', id);
-      let html = `<strong>${escapeHtml(from)}</strong> <span class="meta">· ${new Date(ts).toLocaleTimeString()}</span>`;
-      if (me) {
-        html += ` <button class="delete-btn" data-id="${id}">Delete</button>`;
-      }
-      html += `<div>${escapeHtml(text)}</div>`;
-      div.innerHTML = html;
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-
-      // Store message
-      messages.push({ text, from, id, senderId, ts });
-    }
-
-    function escapeHtml(s) {
-      if (!s) return '';
-      return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-    }
-
-    joinBtn.addEventListener('click', () => {
-      const username = usernameInput.value.trim();
-      const roomId = roomInput.value.trim();
-      if (!username || !roomId) {
-        alert('Please enter both name and room id');
-        return;
-      }
-      socket.emit('join-room', { roomId, username }, (res) => {
-        if (!res || !res.ok) {
-          alert('Failed to join room: ' + (res && res.error ? res.error : 'Unknown'));
-          return;
-        }
-        localUsername = username;
-        localRoom = roomId;
-        roomLabel.textContent = roomId;
-        participantsCountEl.textContent = res.participants || '1';
-        joinArea.classList.add('hidden');
-        chatArea.classList.remove('hidden');
-        messageInput.focus();
-      });
-    });
-
-    sendForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const text = messageInput.value.trim();
-      if (!text) return;
-      socket.emit('send-message', { text }, (ack) => {
-        if (ack && ack.ok) {
-          messageInput.value = '';
-          stopTyping();
-        } else {
-          console.warn('message send failed', ack);
-        }
-      });
-    });
-
-    // Typing indicator: notify server when user types
-    messageInput.addEventListener('input', () => {
-      if (!isTyping) {
-        isTyping = true;
-        socket.emit('typing', { isTyping: true });
-      }
-      clearTimeout(typingTimer);
-      typingTimer = setTimeout(() => {
-        stopTyping();
-      }, 700); // after 700ms of inactivity, stop typing
-    });
-
-    function stopTyping() {
-      if (isTyping) {
-        isTyping = false;
-        socket.emit('typing', { isTyping: false });
-      }
-    }
-
-    // Handle socket events
-    socket.on('message', (payload) => {
-      appendMessage(payload);
-    });
-
-    socket.on('message-deleted', ({ messageId }) => {
-      const msgDiv = messagesEl.querySelector(`[data-message-id="${messageId}"]`);
-      if (msgDiv) msgDiv.remove();
-      messages = messages.filter(msg => msg.id !== messageId);
-    });
-
-    socket.on('peer-joined', ({ username }) => {
-      const div = document.createElement('div');
-      div.className = 'msg other';
-      div.innerHTML = `<em>${escapeHtml(username)} joined the room.</em>`;
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    });
-
-    socket.on('peer-left', ({ username }) => {
-      const div = document.createElement('div');
-      div.className = 'msg other';
-      div.innerHTML = `<em>${escapeHtml(username)} left the room.</em>`;
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    });
-
-    socket.on('room-info', ({ participants }) => {
-      participantsCountEl.textContent = participants;
-    });
-
-    socket.on('peer-typing', ({ username, isTyping }) => {
-      if (isTyping) {
-        typingEl.textContent = `${username} is typing...`;
-        typingEl.classList.remove('hidden');
-      } else {
-        typingEl.classList.add('hidden');
-      }
-    });
-
-    leaveBtn.addEventListener('click', () => {
-      if (localRoom) {
-        socket.emit('typing', { isTyping: false });
-        socket.disconnect();
-        // simply reload to reset UI and reconnect
-        setTimeout(() => location.reload(), 200);
-      }
-    });
-
-    clearBtn.addEventListener('click', () => {
-      messages = [];
-      messagesEl.innerHTML = '';
-    });
-
-    exportBtn.addEventListener('click', () => {
-      const content = messages.map(msg => `[${new Date(msg.ts).toLocaleString()}] ${msg.from}: ${msg.text}`).join('\n');
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `chat-${localRoom}-${new Date().toISOString().split('T')[0]}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-
-    messagesEl.addEventListener('click', (e) => {
-      if (e.target.classList.contains('delete-btn')) {
-        const messageId = e.target.getAttribute('data-id');
-        socket.emit('delete-message', { messageId }, (ack) => {
-          if (ack && ack.ok) {
-            // Remove locally immediately
-            const msgDiv = e.target.closest('.msg');
-            if (msgDiv) msgDiv.remove();
-            messages = messages.filter(msg => msg.id !== messageId);
-          }
-        });
-      }
-    });
-
-    // Optional: reconnect behavior
-    socket.io.on('reconnect', () => {
-      // If you'd like, implement automatic rejoin logic here.
-      // For this simple example we leave manual reload behavior.
-    });
-  </script>
+  <script src="client.js"></script>
 </body>
 </html>
