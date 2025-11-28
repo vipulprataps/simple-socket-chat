@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -57,12 +58,22 @@ io.on('connection', (socket) => {
     const payload = {
       text,
       from: username,
-      id: socket.id,
+      id: crypto.randomUUID(),
+      senderId: socket.id,
       ts: Date.now()
     };
 
     // Emit to everyone in the room (including sender)
     io.in(roomId).emit('message', payload);
+    ack && ack({ ok: true });
+  });
+
+  socket.on('delete-message', ({ messageId }, ack) => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return ack && ack({ ok: false, error: 'Not in a room' });
+
+    // Broadcast deletion to the room
+    io.in(roomId).emit('message-deleted', { messageId });
     ack && ack({ ok: true });
   });
 

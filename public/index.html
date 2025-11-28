@@ -15,7 +15,7 @@
     .meta { font-size: 0.8rem; color: #666; }
     .controls { display: flex; gap: .5rem; }
     .controls input[type="text"] { flex: 1; padding: .5rem; }
-    .typing { font-size: 0.9rem; color: #444; margin-bottom: .4rem; }
+    .delete-btn { background: none; border: none; color: #f00; cursor: pointer; font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -42,7 +42,11 @@
         <input id="messageInput" type="text" placeholder="Type a message..." />
         <button type="submit">Send</button>
       </form>
-      <button id="leaveBtn" style="margin-top:.5rem">Leave Room</button>
+      <div class="controls" style="margin-top:.5rem">
+        <button id="clearBtn">Clear Chat</button>
+        <button id="exportBtn">Export Chat</button>
+        <button id="leaveBtn">Leave Room</button>
+      </div>
     </div>
   </div>
 
@@ -64,20 +68,31 @@
     const participantsCountEl = document.getElementById('participantsCount');
     const typingEl = document.getElementById('typing');
     const leaveBtn = document.getElementById('leaveBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const exportBtn = document.getElementById('exportBtn');
 
     let localUsername = '';
     let localRoom = '';
     let typingTimer = null;
     let isTyping = false;
+    let messages = [];
 
-    function appendMessage({ text, from, id, ts }) {
-      const me = id === socket.id;
+    function appendMessage({ text, from, id, senderId, ts }) {
+      const me = senderId === socket.id;
       const div = document.createElement('div');
       div.className = 'msg ' + (me ? 'me' : 'other');
-      div.innerHTML = `<strong>${escapeHtml(from)}</strong> <span class="meta">· ${new Date(ts).toLocaleTimeString()}</span>
-                       <div>${escapeHtml(text)}</div>`;
+      div.setAttribute('data-message-id', id);
+      let html = `<strong>${escapeHtml(from)}</strong> <span class="meta">· ${new Date(ts).toLocaleTimeString()}</span>`;
+      if (me) {
+        html += ` <button class="delete-btn" data-id="${id}">Delete</button>`;
+      }
+      html += `<div>${escapeHtml(text)}</div>`;
+      div.innerHTML = html;
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      // Store message
+      messages.push({ text, from, id, senderId, ts });
     }
 
     function escapeHtml(s) {
@@ -145,6 +160,12 @@
       appendMessage(payload);
     });
 
+    socket.on('message-deleted', ({ messageId }) => {
+      const msgDiv = messagesEl.querySelector(`[data-message-id="${messageId}"]`);
+      if (msgDiv) msgDiv.remove();
+      messages = messages.filter(msg => msg.id !== messageId);
+    });
+
     socket.on('peer-joined', ({ username }) => {
       const div = document.createElement('div');
       div.className = 'msg other';
@@ -180,6 +201,36 @@
         socket.disconnect();
         // simply reload to reset UI and reconnect
         setTimeout(() => location.reload(), 200);
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      messages = [];
+      messagesEl.innerHTML = '';
+    });
+
+    exportBtn.addEventListener('click', () => {
+      const content = messages.map(msg => `[${new Date(msg.ts).toLocaleString()}] ${msg.from}: ${msg.text}`).join('\n');
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat-${localRoom}-${new Date().toISOString().split('T')[0]}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    messagesEl.addEventListener('click', (e) => {
+      if (e.target.classList.contains('delete-btn')) {
+        const messageId = e.target.getAttribute('data-id');
+        socket.emit('delete-message', { messageId }, (ack) => {
+          if (ack && ack.ok) {
+            // Remove locally immediately
+            const msgDiv = e.target.closest('.msg');
+            if (msgDiv) msgDiv.remove();
+            messages = messages.filter(msg => msg.id !== messageId);
+          }
+        });
       }
     });
 
