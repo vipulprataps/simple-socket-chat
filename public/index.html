@@ -30,6 +30,12 @@
             <label for="user2Name">Person 2 Name</label>
             <input id="user2Name" type="text" placeholder="Enter second person's name" />
           </div>
+
+          <div class="form-group">
+            <label for="roomPasscode">Room Passcode</label>
+            <input id="roomPasscode" type="password" placeholder="Enter a secure passcode (min 4 chars)" />
+            <small class="help-hint">🔒 Required to join the room</small>
+          </div>
           
           <button id="createRoomBtn" class="btn-primary">Create Room & Get Link</button>
           
@@ -47,6 +53,11 @@
           <div class="form-group">
             <label for="roomIdInput">Room ID</label>
             <input id="roomIdInput" type="text" placeholder="Enter room ID from URL" />
+          </div>
+
+          <div class="form-group">
+            <label for="joinPasscode">Room Passcode</label>
+            <input id="joinPasscode" type="password" placeholder="Enter room passcode" />
           </div>
           
           <button id="checkRoomBtn" class="btn-primary">Check Room</button>

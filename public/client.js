@@ -10,10 +10,12 @@ const roomLinkSection = document.getElementById('roomLinkSection');
 
 const user1NameInput = document.getElementById('user1Name');
 const user2NameInput = document.getElementById('user2Name');
+const roomPasscodeInput = document.getElementById('roomPasscode');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const switchToJoinBtn = document.getElementById('switchToJoinBtn');
 
 const roomIdInput = document.getElementById('roomIdInput');
+const joinPasscodeInput = document.getElementById('joinPasscode');
 const checkRoomBtn = document.getElementById('checkRoomBtn');
 const switchToCreateBtn = document.getElementById('switchToCreateBtn');
 
@@ -50,6 +52,7 @@ let isTyping = false;
 let messages = [];
 let currentRoomInfo = null;
 let mySlot = null;
+let currentPasscode = ''; // Store passcode for reconnection
 
 function appendMessage({ text, from, id, senderId, senderSlot, ts, status }) {
   const me = senderSlot === mySlot; // Use slot comparison instead of socket ID
@@ -134,7 +137,7 @@ function init() {
   if (roomIdFromUrl) {
     roomIdInput.value = roomIdFromUrl;
     showSection('joinRoomSection');
-    checkRoom(roomIdFromUrl);
+    joinPasscodeInput.focus();
   }
 }
 
@@ -157,26 +160,33 @@ function generateRoomId() {
 createRoomBtn.addEventListener('click', () => {
   const user1Name = user1NameInput.value.trim();
   const user2Name = user2NameInput.value.trim();
+  const passcode = roomPasscodeInput.value.trim();
   
   if (!user1Name || !user2Name) {
     alert('Please enter both participant names');
     return;
   }
+
+  if (!passcode || passcode.length < 4) {
+    alert('Please enter a passcode (at least 4 characters)');
+    return;
+  }
   
   const roomId = generateRoomId();
   
-  socket.emit('create-room', { roomId, user1Name, user2Name }, (res) => {
+  socket.emit('create-room', { roomId, user1Name, user2Name, passcode }, (res) => {
     if (!res || !res.ok) {
       alert('Failed to create room: ' + (res && res.error ? res.error : 'Unknown'));
       return;
     }
     
     localRoom = roomId;
+    currentPasscode = passcode;
     const roomUrl = window.location.origin + window.location.pathname + '?room=' + roomId;
     roomLinkInput.value = roomUrl;
     
     // Store room info
-    currentRoomInfo = { user1Name, user2Name, roomId };
+    currentRoomInfo = { user1Name, user2Name, roomId, passcode };
     
     showSection('roomLinkSection');
   });
@@ -215,21 +225,36 @@ switchToCreateBtn.addEventListener('click', () => {
 // Check Room
 checkRoomBtn.addEventListener('click', () => {
   const roomId = roomIdInput.value.trim();
+  const passcode = joinPasscodeInput.value.trim();
+  
   if (!roomId) {
     alert('Please enter a room ID');
     return;
   }
-  checkRoom(roomId);
+
+  if (!passcode) {
+    alert('Please enter the room passcode');
+    return;
+  }
+  
+  checkRoom(roomId, passcode);
 });
 
-function checkRoom(roomId) {
-  socket.emit('get-room-info', { roomId }, (res) => {
+function checkRoom(roomId, passcode) {
+  socket.emit('get-room-info', { roomId, passcode }, (res) => {
     if (!res || !res.ok) {
-      alert('Room not found: ' + (res && res.error ? res.error : 'Unknown'));
+      if (res && res.invalidPasscode) {
+        alert('Invalid passcode. Please try again.');
+        joinPasscodeInput.value = '';
+        joinPasscodeInput.focus();
+      } else {
+        alert('Room not found: ' + (res && res.error ? res.error : 'Unknown'));
+      }
       return;
     }
     
     localRoom = roomId;
+    currentPasscode = passcode;
     showRoomSlotSelection(roomId, res.user1Name, res.user2Name, res.availableSlots);
   });
 }
@@ -264,7 +289,7 @@ joinAsUser2Btn.addEventListener('click', () => {
 });
 
 function joinRoomAsSlot(slot, username) {
-  socket.emit('join-room', { roomId: localRoom, username, slot }, (res) => {
+  socket.emit('join-room', { roomId: localRoom, username, slot, passcode: currentPasscode }, (res) => {
     if (!res || !res.ok) {
       alert('Failed to join room: ' + (res && res.error ? res.error : 'Unknown'));
       return;
@@ -456,8 +481,8 @@ messagesEl.addEventListener('click', (e) => {
 // Optional: reconnect behavior
 socket.io.on('reconnect', () => {
   statusEl.textContent = 'Connected';
-  if (localRoom && localUsername) {
-    socket.emit('join-room', { roomId: localRoom, username: localUsername }, (res) => {
+  if (localRoom && localUsername && currentPasscode) {
+    socket.emit('join-room', { roomId: localRoom, username: localUsername, slot: mySlot, passcode: currentPasscode }, (res) => {
       if (res && res.ok) {
         participantsCountEl.textContent = res.participants || '1';
         // Load history again? But since reconnect, history might be loaded already, but to be safe

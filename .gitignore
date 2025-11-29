@@ -137,3 +137,10 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# SQLite database files (contains user data)
+chat.db
+chat.db-*
+*.db-journal
+*.db-wal
+*.db-shm
