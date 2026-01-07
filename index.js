@@ -4,24 +4,67 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
-const { initDatabase, roomOps, participantOps, messageOps } = require('./database');
+const mongoose = require('mongoose');
+const { Readable } = require('stream');
+// const { initDatabase, roomOps, participantOps, messageOps } = require('./database');
+const { initDatabase, roomOps, participantOps, messageOps } = require('./mongoDatabase');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-
-// Initialize SQLite database
-initDatabase();
-
-// Clear all stale participant connections from previous server session
-// This ensures rooms are accessible after server restart
-participantOps.clearAllParticipants();
 
 // Serve static files from /public
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Simple GET for health
 app.get('/health', (req, res) => res.send({ ok: true }));
+
+// HTTP route to stream attachments by fileId
+app.get('/attachments/:fileId', async (req, res) => {
+  const { fileId } = req.params;
+
+  try {
+    const _id = new mongoose.Types.ObjectId(fileId);
+
+    // We need bucket from mongoDatabase via mongoose's native driver
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'attachments',
+    });
+
+    const files = await bucket.find({ _id }).toArray();
+    if (!files || !files.length) {
+      return res.status(404).send('File not found');
+    }
+
+    const file = files[0];
+    if (file.contentType) {
+      res.setHeader('Content-Type', file.contentType);
+    }
+
+    const downloadStream = bucket.openDownloadStream(_id);
+    downloadStream.on('error', () => res.status(404).end());
+    downloadStream.pipe(res);
+  } catch (err) {
+    console.error('Error streaming attachment:', err);
+    res.status(400).send('Invalid file id');
+  }
+});
+
+// Async startup to initialize MongoDB and clear participants
+(async () => {
+  try {
+    await initDatabase();
+    await participantOps.clearAllParticipants();
+
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => {
+      console.log(`Server listening on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+})();
 
 /**
  * Room model:
@@ -32,7 +75,7 @@ io.on('connection', (socket) => {
   console.log('socket connected:', socket.id);
 
   // Create or get room metadata
-  socket.on('create-room', ({ roomId, user1Name, user2Name, passcode }, ack) => {
+  socket.on('create-room', async ({ roomId, user1Name, user2Name, passcode }, ack) => {
     if (!roomId || !user1Name || !user2Name) {
       return ack && ack({ ok: false, error: 'roomId, user1Name, and user2Name required' });
     }
@@ -42,7 +85,7 @@ io.on('connection', (socket) => {
     }
 
     try {
-      roomOps.create(roomId, user1Name, user2Name, passcode.trim());
+      await roomOps.create(roomId, user1Name, user2Name, passcode.trim());
       ack && ack({ ok: true, roomId });
     } catch (error) {
       ack && ack({ ok: false, error: error.message || 'Room already exists' });
@@ -50,22 +93,23 @@ io.on('connection', (socket) => {
   });
 
   // Get room info
-  socket.on('get-room-info', ({ roomId, passcode }, ack) => {
+  socket.on('get-room-info', async ({ roomId, passcode }, ack) => {
     if (!roomId) {
       return ack && ack({ ok: false, error: 'roomId required' });
     }
 
-    const room = roomOps.get(roomId);
+    const room = await roomOps.get(roomId);
     if (!room) {
       return ack && ack({ ok: false, error: 'Room not found', exists: false });
     }
 
     // Verify passcode
-    if (!roomOps.verifyPasscode(roomId, passcode ? passcode.trim() : '')) {
+    const valid = await roomOps.verifyPasscode(roomId, passcode ? passcode.trim() : '');
+    if (!valid) {
       return ack && ack({ ok: false, error: 'Invalid passcode', invalidPasscode: true });
     }
 
-    const availableSlots = participantOps.getAvailableSlots(roomId);
+    const availableSlots = await participantOps.getAvailableSlots(roomId);
 
     ack && ack({ 
       ok: true, 
@@ -76,14 +120,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('join-room', ({ roomId, username, slot, passcode }, ack) => {
+  socket.on('join-room', async ({ roomId, username, slot, passcode }, ack) => {
     if (!roomId || !username) {
       return ack && ack({ ok: false, error: 'roomId and username required' });
     }
 
     // Verify room exists and passcode
-    if (!roomOps.verifyPasscode(roomId, passcode ? passcode.trim() : '')) {
-      const room = roomOps.get(roomId);
+    const valid = await roomOps.verifyPasscode(roomId, passcode ? passcode.trim() : '');
+    if (!valid) {
+      const room = await roomOps.get(roomId);
       if (!room) {
         return ack && ack({ ok: false, error: 'Room not found' });
       }
@@ -94,7 +139,7 @@ io.on('connection', (socket) => {
     let assignedSlot = slot;
     if (!assignedSlot) {
       // Auto-assign to available slot
-      const availableSlots = participantOps.getAvailableSlots(roomId);
+      const availableSlots = await participantOps.getAvailableSlots(roomId);
       if (availableSlots.user1) {
         assignedSlot = 'user1';
       } else if (availableSlots.user2) {
@@ -104,9 +149,10 @@ io.on('connection', (socket) => {
       }
     } else {
       // Check if requested slot is available
-      if (!participantOps.isSlotAvailable(roomId, assignedSlot)) {
+      const available = await participantOps.isSlotAvailable(roomId, assignedSlot);
+      if (!available) {
         // Slot appears occupied, but check if the socket actually exists (could be stale)
-        const participant = participantOps.get(roomId, assignedSlot);
+        const participant = await participantOps.get(roomId, assignedSlot);
         
         if (participant && participant.socket_id) {
           // Check if this socket ID is actually connected
@@ -115,7 +161,7 @@ io.on('connection', (socket) => {
           if (!socketExists) {
             // Stale connection from previous server session, clear it
             console.log(`Clearing stale connection for ${assignedSlot} in room ${roomId}`);
-            participantOps.leave(roomId, assignedSlot);
+            await participantOps.leave(roomId, assignedSlot);
           } else {
             // Socket is actually connected, slot is genuinely taken
             return ack && ack({ ok: false, error: `${assignedSlot} slot is already taken` });
@@ -138,10 +184,10 @@ io.on('connection', (socket) => {
     socket.data.slot = assignedSlot;
 
     // Update participant slot in database
-    participantOps.join(roomId, assignedSlot, socket.id, username);
+    await participantOps.join(roomId, assignedSlot, socket.id, username);
 
     // Send chat history from database
-    const history = messageOps.getByRoom(roomId);
+    const history = await messageOps.getByRoom(roomId);
     ack && ack({ ok: true, participants: numClients + 1, history, slot: assignedSlot });
 
     // Notify other participant
@@ -151,7 +197,7 @@ io.on('connection', (socket) => {
     io.in(roomId).emit('room-info', { roomId, participants: numClients + 1 });
   });
 
-  socket.on('send-message', ({ text }, ack) => {
+  socket.on('send-message', async ({ text }, ack) => {
     const username = socket.data.username || 'Anonymous';
     const roomId = socket.data.roomId;
     const slot = socket.data.slot;
@@ -169,7 +215,7 @@ io.on('connection', (socket) => {
     };
 
     // Save to database
-    messageOps.create({
+    await messageOps.create({
       id: messageId,
       roomId,
       senderSlot: slot,
@@ -188,30 +234,87 @@ io.on('connection', (socket) => {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room && room.size > 1) {
       // Update status to delivered in database
-      messageOps.updateStatus(messageId, 'delivered');
+      await messageOps.updateStatus(messageId, 'delivered');
       // Notify sender about delivery
       socket.emit('message-status-updated', { messageId: payload.id, status: 'delivered' });
     }
   });
 
-  socket.on('delete-message', ({ messageId }, ack) => {
+  // Send a message with a photo/video attachment (base64 payload)
+  socket.on('send-attachment-message', async ({ text, attachment }, ack) => {
+    const username = socket.data.username || 'Anonymous';
+    const roomId = socket.data.roomId;
+    const slot = socket.data.slot;
+
+    if (!roomId) return ack && ack({ ok: false, error: 'Not in a room' });
+    if (!attachment || !attachment.dataBase64 || !attachment.filename || !attachment.mimeType) {
+      return ack && ack({ ok: false, error: 'Invalid attachment' });
+    }
+
+    try {
+      const messageId = crypto.randomUUID();
+      const ts = Date.now();
+
+      const buffer = Buffer.from(attachment.dataBase64, 'base64');
+      const fileStream = Readable.from(buffer);
+
+      const savedMsg = await messageOps.createWithAttachment({
+        messageId,
+        roomId,
+        senderSlot: slot,
+        senderId: socket.id,
+        from: username,
+        text: text || '',
+        ts,
+        fileStream,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size || buffer.length,
+      });
+
+      const payload = {
+        id: savedMsg.id,
+        roomId,
+        senderId: socket.id,
+        senderSlot: slot,
+        from: username,
+        text: savedMsg.text,
+        ts: savedMsg.ts,
+        status: savedMsg.status,
+        attachment: {
+          filename: savedMsg.attachment.filename,
+          mimeType: savedMsg.attachment.mimeType,
+          size: savedMsg.attachment.size,
+          fileId: savedMsg.attachment.fileId.toString(),
+        },
+      };
+
+      io.in(roomId).emit('message', payload);
+      ack && ack({ ok: true, messageId: payload.id });
+    } catch (err) {
+      console.error('Error sending attachment message:', err);
+      ack && ack({ ok: false, error: 'Failed to send attachment' });
+    }
+  });
+
+  socket.on('delete-message', async ({ messageId }, ack) => {
     const roomId = socket.data.roomId;
     if (!roomId) return ack && ack({ ok: false, error: 'Not in a room' });
 
     // Delete from database
-    messageOps.delete(messageId);
+    await messageOps.delete(messageId);
 
     // Broadcast deletion to the room
     io.in(roomId).emit('message-deleted', { messageId });
     ack && ack({ ok: true });
   });
 
-  socket.on('clear-chat', (ack) => {
+  socket.on('clear-chat', async (ack) => {
     const roomId = socket.data.roomId;
     if (!roomId) return ack && ack({ ok: false, error: 'Not in a room' });
 
     // Clear messages from database
-    messageOps.clearByRoom(roomId);
+    await messageOps.clearByRoom(roomId);
 
     // Broadcast clear to the room
     io.in(roomId).emit('chat-cleared');
@@ -241,12 +344,12 @@ io.on('connection', (socket) => {
   });
 
   // Mark messages as read
-  socket.on('mark-messages-read', ({ messageIds }, ack) => {
+  socket.on('mark-messages-read', async ({ messageIds }, ack) => {
     const roomId = socket.data.roomId;
     if (!roomId) return ack && ack({ ok: false, error: 'Not in a room' });
 
     // Get current messages from database to check senders
-    const history = messageOps.getByRoom(roomId);
+    const history = await messageOps.getByRoom(roomId);
     
     // Filter messages that are not from current user
     const messagesToUpdate = messageIds.filter(msgId => {
@@ -256,7 +359,7 @@ io.on('connection', (socket) => {
 
     // Update message statuses in database
     if (messagesToUpdate.length > 0) {
-      messageOps.markAsRead(messagesToUpdate);
+      await messageOps.markAsRead(messagesToUpdate);
       
       // Notify senders about read status
       messagesToUpdate.forEach(msgId => {
@@ -281,14 +384,14 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('peer-typing', { username, isTyping });
   });
 
-  socket.on('disconnecting', () => {
+  socket.on('disconnecting', async () => {
     const roomId = socket.data.roomId;
     const username = socket.data.username;
     const slot = socket.data.slot;
     
     if (roomId && slot) {
       // Clear participant slot in database
-      participantOps.leave(roomId, slot);
+      await participantOps.leave(roomId, slot);
       
       // notify peers
       socket.to(roomId).emit('peer-left', { username, id: socket.id });
@@ -298,9 +401,4 @@ io.on('connection', (socket) => {
   socket.on('disconnect', (reason) => {
     console.log('socket disconnected:', socket.id, reason);
   });
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
 });

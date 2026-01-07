@@ -45,6 +45,17 @@ const actionMenu = document.getElementById('actionMenu');
 const attachBtn = document.getElementById('attachBtn');
 const editUsernameBtn = document.getElementById('editUsernameBtn');
 
+// Hidden file input for attachments
+let attachmentInput = document.getElementById('attachmentInput');
+if (!attachmentInput) {
+  attachmentInput = document.createElement('input');
+  attachmentInput.type = 'file';
+  attachmentInput.accept = 'image/*,video/*';
+  attachmentInput.id = 'attachmentInput';
+  attachmentInput.style.display = 'none';
+  document.body.appendChild(attachmentInput);
+}
+
 let localUsername = '';
 let localRoom = '';
 let typingTimer = null;
@@ -54,7 +65,7 @@ let currentRoomInfo = null;
 let mySlot = null;
 let currentPasscode = ''; // Store passcode for reconnection
 
-function appendMessage({ text, from, id, senderId, senderSlot, ts, status }) {
+function appendMessage({ text, from, id, senderId, senderSlot, ts, status, attachment }) {
   const me = senderSlot === mySlot; // Use slot comparison instead of socket ID
   const div = document.createElement('div');
   div.className = 'msg ' + (me ? 'me' : 'other');
@@ -64,7 +75,22 @@ function appendMessage({ text, from, id, senderId, senderSlot, ts, status }) {
   if (me) {
     html += ` <button class="delete-btn" data-id="${id}">Delete</button>`;
   }
-  html += `<div>${escapeHtml(text)}</div>`;
+  
+  if (text) {
+    html += `<div>${escapeHtml(text)}</div>`;
+  }
+
+  // Render attachment preview if present
+  if (attachment && attachment.fileId) {
+    const url = `/attachments/${attachment.fileId}`;
+    if (attachment.mimeType && attachment.mimeType.startsWith('image/')) {
+      html += `<div class="attachment"><img src="${url}" alt="image attachment" /></div>`;
+    } else if (attachment.mimeType && attachment.mimeType.startsWith('video/')) {
+      html += `<div class="attachment"><video src="${url}" controls></video></div>`;
+    } else {
+      html += `<div class="attachment"><a href="${url}" target="_blank">Download attachment</a></div>`;
+    }
+  }
   
   // Add status indicator for sent messages
   if (me) {
@@ -78,7 +104,7 @@ function appendMessage({ text, from, id, senderId, senderSlot, ts, status }) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
   // Store message
-  messages.push({ text, from, id, senderId, senderSlot, ts, status: status || 'sent' });
+  messages.push({ text, from, id, senderId, senderSlot, ts, status: status || 'sent', attachment });
   
   // Mark as read if it's from someone else
   if (!me) {
@@ -424,9 +450,55 @@ backBtn.addEventListener('click', () => {
   }
 });
 
-// Attach button placeholder
+// Attach button: open file picker and send attachment message
 attachBtn.addEventListener('click', () => {
-  alert('File attachment feature coming soon!');
+  if (!localRoom) {
+    alert('Join a room before sending attachments');
+    return;
+  }
+  attachmentInput.click();
+});
+
+attachmentInput.addEventListener('change', () => {
+  const file = attachmentInput.files[0];
+  if (!file) return;
+
+  const maxSize = 10 * 1024 * 1024; // 10MB limit
+  if (file.size > maxSize) {
+    alert('File is too large. Please select a file under 10MB.');
+    attachmentInput.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = reader.result.split(',')[1]; // remove data:mime;base64,
+    const caption = messageInput.value.trim();
+
+    socket.emit(
+      'send-attachment-message',
+      {
+        text: caption,
+        attachment: {
+          dataBase64: base64,
+          filename: file.name,
+          mimeType: file.type,
+          size: file.size,
+        },
+      },
+      (ack) => {
+        if (ack && ack.ok) {
+          messageInput.value = '';
+          stopTyping();
+        } else {
+          alert('Failed to send attachment');
+        }
+      }
+    );
+  };
+
+  reader.readAsDataURL(file);
+  attachmentInput.value = '';
 });
 
 // Edit Username

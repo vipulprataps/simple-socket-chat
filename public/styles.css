@@ -775,3 +775,17 @@ body {
     background: #2a3942;
   }
 }
+
+/* Ensure attachment previews fit inside message container */
+.msg .attachment {
+  margin-top: 4px;
+}
+
+.msg .attachment img,
+.msg .attachment video {
+  max-width: 100%;
+  max-height: 240px; /* adjust height as needed */
+  display: block;
+  border-radius: 4px;
+  object-fit: contain;
+}
